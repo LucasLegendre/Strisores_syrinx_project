@@ -1,5 +1,5 @@
 # Strisores_syrinx_project
-Code, data, and phylogenetic tree for a project on dinosaur eggshell evolution, published in Legendre et al. (TBD).
+Code, data, and phylogenetic tree for a project on morphology and evolution of the syrinx in Strisores, published in Legendre et al. (TBD).
 
 This project includes:
 - 'Script_Strisores.Rmd': R script for the project, in Markdown format
