@@ -1,0 +1,649 @@
+---
+title: "Strisores syrinx project"
+author: "Lucas Legendre"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+     toc: true
+     toc_float:
+      collapsed: false
+      smooth_scroll: false
+     df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Compiled under R version 4.3.0 (2023-04-21)
+
+**WARNING**: edit the working directory to your preferred folder.
+
+This document details all analyses performed in R for the study:
+
+For more information regarding the study, datasets, and analyses, please refer to the Main Text and Supplementary Information of this paper. If you have any additional questions, feel free to email me at [lucasjlegendre\@gmail.com](mailto:lucasjlegendre@gmail.com){.email}.
+
+## Loading packages and functions
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(nlme)
+library(ape)
+library(phytools)
+library(bioacoustics)
+library(AICcmodavg)
+library(evobiR)
+library(phylopath)
+library(caper)
+library(geiger)
+library(windex)
+library(geomorph)
+library(RColorBrewer)
+```
+
+-   Import function `fitEvolPar` to estimate the best fit of the main parameter (alpha, lambda, or g) in the corresponding evolutionary model (OU, lambda, or EB, respectively)
+
+(Download from GitHub: <https://github.com/LucasLegendre/fitEvolPar>)
+
+```{r}
+sys.source("fitEvolPar.R", envir = knitr::knit_global())
+```
+
+## Acoustic data extraction
+
+-   Data
+
+```{r}
+# Load both datasets
+acoudata<-read.csv("notes-filtered_20211202.csv", header=TRUE, sep=";")
+datasyr<-read.table("Dataset_syrinx_strisores.txt", header=TRUE)
+rownames(datasyr)<-datasyr$Taxon
+
+# Extract species in acoustic dataset for which we have morphological data
+acoudataset<-acoudata %>% 
+  group_by(species) %>% 
+  dplyr::summarize(duration=mean(duration), freq_max_amp=mean(freq_max_amp), freq_min=mean(freq_min),
+            freq_max=mean(freq_max), bandwidth=mean(bandwidth))
+
+acoudataset<-as.data.frame(acoudataset); rownames(acoudataset)<-acoudataset$species
+
+vector<-c(datasyr$Taxon[1], "Chaetura_pelagica",
+          datasyr$Taxon[c(4:12)],"Oreotrochilus_chimborazo", datasyr$Taxon[c(15:21)])
+intersect(acoudataset$species, vector) # Species present in both datasets
+acoumorph<-acoudataset %>% filter(species %in% vector)
+
+# Reformat to match syrinx data
+acoumorph<-acoumorph[match(vector,acoumorph$species),] # reorder to match syrinx data
+rownames(acoumorph)[c(17,18)]<-datasyr$Taxon[c(19,20)]
+acoumorph$species[c(17,18)]<-rownames(acoumorph)[c(17,18)]
+acoumorph<-acoumorph[c(1,rep(2,2),3:11,rep(12,2),13:19),]
+
+# Bind two datasets
+data<-cbind(datasyr,acoumorph[,c(2:6)])
+data<-data[,c(1:11,22:27)]; colnames(data)[12]<-"IM_CSA"
+rownames(data)<-data$Taxon
+```
+
+Here, we extract five acoustic traits to add them to the morphological dataset -- duration, frequency at maximum amplitude, minimum frequency, maximum frequency, and bandwidth -- for more info on each parameter, see vignette for package `bioacoustics`:
+
+```{r}
+vignette("introduction", package = "bioacoustics")
+```
+
+-   Tree
+
+```{r}
+treeS<-read.nexus("Tree_strisores.trees.nex")
+treesyr<-drop.tip(treeS, setdiff(treeS$tip.label, rownames(datasyr)))
+plotTree(treesyr, fsize=1.2)
+data<-ReorderData(treesyr,data)
+```
+
+## Reduce dimensionality of acoustic data using phylogenetic Principal Component Analysis (pPCA)
+
+-   Checking for phylogenetic signal (pPCA assumes a Brownian Motion model for all traits - see Revell, 2009; Uyeda et al., 2015)
+
+```{r}
+# Remove missing data
+acouphyl<-data[!is.na(data$duration),c(13:17)]
+acoutree<-drop.tip(treesyr, setdiff(treesyr$tip.label,rownames(acouphyl)))
+
+# Phylogenetic signal
+var=list(); phy=list()
+for (i in 1:5) {
+  var<-acouphyl[,i]; names(var)<-rownames(acouphyl)
+  phy[[i]]<-phylosig(acoutree, var, method="lambda", test=TRUE)
+}
+phy
+```
+
+The signal is strong for three variables (duration, max. frequency, and bandwidth), but not significant for the other two (frequency at max. amplitude and min. frequency). We will use a lambda model (Brownian Motion with Pagel's lambda optimized using restricted maximum likelihood).
+
+-   pPCA (using `phytools`)
+
+```{r}
+pPCA<-phyl.pca(acoutree, acouphyl, method="lambda", opt="REML")
+summary(pPCA)
+plot(pPCA); biplot(pPCA)
+pPCA$lambda # very low value, as expected
+```
+
+PC1 explains 88% of the variance, PC2 only 11% -- we can use PC1 as a character representing acoustic parameters for the species in our dataset.
+
+-   Let us add PC1 to our dataset
+
+```{r}
+PC1<-pPCA$S[,1]
+PC1<-c(PC1[1:12],NA,PC1[13:17],NA,PC1[18:19])
+names(PC1)[c(13,19)]<-rownames(acoumorph)[c(20,19)]
+data<-cbind(data, PC1)
+```
+
+-   Let us also check phylogenetic signal for morphoanatomical traits
+
+```{r, warning=FALSE}
+var=list(); phy=list(); phydat=data.frame()
+for (i in 4:12) {
+  var<-data[,i]; names(var)<-rownames(data)
+  var2<-var[!is.na(var)]
+  treesyrvar<-drop.tip(treesyr,setdiff(treesyr$tip.label,names(var2)))
+  phy[[i]]<-phylosig(treesyrvar, var2, method="lambda", test=TRUE)
+  phydat[i,1]<-colnames(data)[i]; phydat[i,2]<-phy[[i]]$lambda; phydat[i,3]<-phy[[i]]$P
+}
+colnames(phydat)<-c("Variable", "Lambda", "P")
+phydat[c(4:12),]
+
+### Checking evolutionary model with fitContinuous
+models=c("BM", "OU", "EB", "rate_trend","lambda", "white") # (For more info, check '?fitContinuous')
+
+var=list(); fit=list(); mod=list()
+for (i in 4:12) {
+  var<-log(data[,i]); names(var)<-rownames(data)
+  var2<-var[!is.na(var)]
+  treesyrvar<-drop.tip(treesyr,setdiff(treesyr$tip.label,names(var2)))
+  for (m in 1:length(models)) {
+    fit[[m]]=fitContinuous(treesyrvar, var2, model=models[m], ncores=2)
+  }
+  mod[[i]]<-modSel.geiger(fit[[1]],fit[[2]],fit[[3]],fit[[4]],fit[[5]],fit[[6]])
+}
+mod
+```
+High and significant values of lambda for all traits except distance TL-labia and IM CSA.
+
+## Phylogenetic path analysis (PPA)
+
+Using `phylopath`.
+
+-   Subset the data to relevant characters
+
+```{r}
+# Trachea length as % trachea length/total vocal tract length
+TracheaRatio<-(data[,8]/(data[,8]+data[,9]))*100; names(TracheaRatio)<-rownames(data)
+
+PPAdata<-cbind(data[,c(1,4:7)], TracheaRatio, data[,c(10,11,18)])
+```
+
+-   Preliminary tests of evolutionary model to pick the best model for PPA
+
+```{r, warning=FALSE}
+Modnames = paste(c("BM", "OU", "Lambda", "EB", "OLS"), sep = " ")
+# For more information, see '?corClasses' in ape
+
+# With body mass as predictor
+bodymass<-PPAdata$Body_mass; names(bodymass)<-paste(rownames(PPAdata))
+for (i in (1:7)) {
+    var2<-log10(PPAdata[,i+2])
+    names(var2)<-rownames(PPAdata)
+    var<-subset(var2, !is.na(var2))
+    treetest<-drop.tip(treesyr, setdiff(treesyr$tip.label, names(var)))
+    bodymass2<-log10(subset(bodymass, !is.na(var2)))
+    datatest<-as.data.frame(cbind(bodymass2,var))
+    spp<-names(var)
+    model=list()
+    model[[1]]=gls(var~bodymass2, datatest,
+                  correlation=corBrownian(phy=treetest, form=~spp), method="ML")
+    model[[2]]=gls(var~bodymass2, datatest,
+                  correlation=corMartins(fitEvolPar(datatest, treetest,"OU"),
+                                         phy=treetest, fixed=TRUE,
+                                         form=~spp), method="ML")
+    model[[3]]=gls(var~bodymass2, datatest,
+                  correlation=corPagel(fitEvolPar(datatest,treetest,"lambda"),
+                                       phy=treetest,
+                                       fixed=TRUE, form=~spp), method="ML")
+    model[[4]]=gls(var~bodymass2, datatest,
+                  correlation=corBlomberg(fitEvolPar(datatest,treetest,"EB"),
+                                          phy=treetest, fixed=TRUE,
+                                          form=~spp), method="ML")
+    model[[5]]=gls(var~bodymass2, datatest, method="ML")
+    print(colnames(PPAdata)[i+2])
+    print(aictab(cand.set=model, modnames=Modnames,sort=TRUE))
+}
+
+# With PC1 as response
+for (i in (1:7)) {
+    var2<-log10(PPAdata[,i+1])
+    names(var2)<-rownames(PPAdata)
+    var<-subset(var2, !is.na(var2)&!is.na(PC1))
+    PC12<-subset(PC1, !is.na(PC1)&!is.na(var2))
+    treetest<-drop.tip(treesyr, setdiff(treesyr$tip.label, names(var)))
+    datatest<-as.data.frame(cbind(var,PC12))
+    spp<-names(var)
+    model=list()
+    model[[1]]=gls(PC12~var, datatest,
+                  correlation=corBrownian(phy=treetest, form=~spp), method="ML")
+    model[[2]]=gls(PC12~var, datatest,
+                  correlation=corMartins(fitEvolPar(datatest, treetest,"OU"),
+                                         phy=treetest, fixed=TRUE,
+                                         form=~spp), method="ML")
+    model[[3]]=gls(PC12~var, datatest,
+                  correlation=corPagel(fitEvolPar(datatest,treetest,"lambda"),
+                                       phy=treetest,
+                                       fixed=TRUE, form=~spp), method="ML")
+    model[[4]]=gls(PC12~var, datatest,
+                  correlation=corBlomberg(fitEvolPar(datatest,treetest,"EB"),
+                                          phy=treetest, fixed=TRUE,
+                                          form=~spp), method="ML")
+    model[[5]]=gls(PC12~var, datatest, method="ML")
+    print(colnames(PPAdata)[i+1])
+    print(aictab(cand.set=model, modnames=Modnames,sort=TRUE))
+}
+```
+
+In most cases, the BM model is selected as the best fit -- we will use it for PPA.
+
+Due to the high number of variables (Hardenberg and Gonzales-Voyer, 2013; Gonzales-Voyer and Hardenberg, 2014), we will decompose the PPA into two separate analyses: one on the effect of body mass on syringeal variables, and one on the effect of syringeal variables on sound production (represented by PC1 from our pPCA).
+
+We can remove one of the two tracheal diameters, since the ratio of the two remains fairly constant through our sample:
+
+```{r}
+RatioTD<-(log10(PPAdata$Tracheal_diameter_INT)/log10(PPAdata$Tracheal_diameter_EXT))*100
+RatioTD<-RatioTD[1:20]
+min(RatioTD); max(RatioTD) # values between 95 and 99% when log-converted
+```
+
+We will be using the external diameter in subsequent analyses.
+
+-   PPA with body mass and syringeal parameters
+
+```{r}
+PPAdata[,c(2:8)]<-log10(PPAdata[,c(2:8)])
+colnames(PPAdata)[2:8]<-c("BM","DTL","CSA","LL","Tr","TDe","TDi")
+
+M<-define_model_set(null=c(),
+                    one=c(LL~Tr),
+                    two=c(LL~Tr, Tr~BM),
+                    three=c(LL~TDe),
+                    four=c(LL~TDe+Tr),
+                    five=c(LL~TDe+Tr, Tr~BM),
+                    six=c(LL~DTL),
+                    seven=c(LL~DTL, DTL~CSA),
+                    eight=c(LL~DTL, DTL~CSA, CSA~Tr),
+                    nine=c(LL~DTL, DTL~CSA, CSA~Tr, Tr~BM),
+                    ten=c(LL~DTL, DTL~CSA, CSA~TDe),
+                    eleven=c(LL~DTL, DTL~CSA, CSA~TDe+Tr),
+                    twelve=c(LL~DTL, DTL~CSA, CSA~TDe+Tr, Tr~BM),
+                    thirteen=c(LL~DTL+Tr),
+                    fourteen=c(LL~DTL+Tr, DTL~CSA),
+                    fifteen=c(LL~DTL+Tr, DTL~CSA, CSA~Tr),
+                    sixteen=c(LL~DTL+Tr, DTL~CSA, CSA~Tr, Tr~BM),
+                    seventeen=c(LL~DTL+Tr, DTL~CSA, CSA~TDe),
+                    eighteen=c(LL~DTL+Tr, DTL~CSA, CSA~TDe+Tr),
+                    nineteen=c(LL~DTL+Tr, DTL~CSA, CSA~TDe+Tr, Tr~BM),
+                    twenty=c(LL~DTL+Tr, Tr~BM),
+                    twentytwo=c(LL~DTL+Tr, DTL~CSA, Tr~BM),
+                    twentythree=c(LL~DTL+Tr, DTL~CSA, CSA~Tr, Tr~BM),
+                    twentyfour=c(LL~DTL+Tr, DTL~CSA, CSA~Tr, Tr~BM),
+                    twentyfive=c(LL~DTL+Tr, DTL~CSA, CSA~TDe, Tr~BM),
+                    twentysix=c(LL~DTL+Tr, DTL~CSA, CSA~TDe+Tr, Tr~BM),
+                    twentyseven=c(LL~DTL+Tr, DTL~CSA, CSA~TDe+Tr, Tr~BM),
+                    twentyeight=c(LL~DTL+TDe),
+                    twentynine=c(LL~DTL+TDe, DTL~CSA),
+                    thirty=c(LL~DTL+TDe, DTL~CSA, CSA~Tr, Tr~BM),
+                    thirtyone=c(LL~DTL+TDe, DTL~CSA, CSA~TDe),
+                    thirtytwo=c(LL~DTL+TDe, DTL~CSA, CSA~TDe+Tr),
+                    thirtythree=c(LL~DTL+TDe, DTL~CSA, CSA~TDe+Tr, Tr~BM),
+                    thirtyfour=c(LL~DTL+Tr+TDe),
+                    thirtyfive=c(LL~DTL+Tr+TDe, DTL~CSA),
+                    thirtysix=c(LL~DTL+Tr+TDe, DTL~CSA, CSA~Tr),
+                    thirtyseven=c(LL~DTL+Tr+TDe, DTL~CSA, CSA~Tr, Tr~BM),
+                    thirtyeight=c(LL~DTL+Tr+TDe, DTL~CSA, CSA~TDe),
+                    thirtynine=c(LL~DTL+Tr+TDe, DTL~CSA, CSA~TDe+Tr),
+                    forty=c(LL~DTL+Tr+TDe, DTL~CSA, CSA~TDe+Tr, Tr~BM),
+                    fortyone=c(LL~DTL+Tr+TDe, Tr~BM),
+                    fortytwo=c(LL~DTL+Tr+TDe, DTL~CSA, Tr~BM),
+                    fortythree=c(LL~DTL+Tr+TDe, DTL~CSA, CSA~Tr, Tr~BM),
+                    fortyfour=c(LL~DTL+Tr+TDe, DTL~CSA, CSA~TDe, Tr~BM),
+                    fortyfive=c(LL~DTL+Tr+TDe, DTL~CSA, CSA~TDe+Tr, Tr~BM),
+                    .common=c(TDi~TDe,CSA~BM,DTL~BM,LL~BM,TDe~BM,TDi~BM, LL~BM))
+
+plot_model_set(M)
+result<-phylo_path(M, data=PPAdata, tree=treesyr, model='BM', "logistic_IG10"); result
+s<-summary(result); s
+plot(s)
+```
+
+Not enough data to compile CICc due to small sample size -- we will focus on individual regressions.
+
+## Simple regressions using PGLS
+
+-   Define single regression formulas between pairs of variables to perform PGLS
+
+```{r}
+varpairs<-combn(c(colnames(PPAdata[2:7]),"IM_CSA","PC1"),2)
+varpairs<-varpairs[,-c(11,14,23)] # Hypotheses we are not testing
+varpair<-list()
+for (i in c(1:7,9,11,12,15,16,20:25)) {
+  varpair[[i]]<-paste(varpairs[2,i], varpairs[1,i], sep="~")
+}
+for (i in c(8,10,13,14,17:19)) {
+  varpair[[i]]<-paste(varpairs[1,i], varpairs[2,i], sep="~")
+}
+```
+
+-   Perform all PGLS
+
+```{r}
+# Create new dataset to include intrinsic muscle CSA
+IM_CSA<-log10(data$IM_CSA)
+datanew<-cbind(PPAdata, IM_CSA)
+
+# PGLS
+modlist<-as.data.frame(matrix(NA, nrow=length(varpair), ncol=3))
+colnames(modlist)<-c("Model","R2","p")
+for (i in c(1:19,21:25)) {
+  datapair<-cbind.data.frame(datanew$Taxon, datanew[,paste(varpairs[1,i])],
+                                datanew[,paste(varpairs[2,i])])
+  colnames(datapair)<-c("Taxon",varpairs[1,i],varpairs[2,i])
+  comppair<-comparative.data(treesyr, datapair, names.col="Taxon")
+  modpair<-pgls(as.formula(paste(varpair[[i]])), data=comppair, lambda="ML")
+  modlist[i,1]<-paste(varpair[[i]])
+  modlist[i,2]<-summary(modpair)$adj.r.squared
+  modlist[i,3]<-summary(modpair)$coef[2,4]
+}
+
+# Model 20 (PC1~LL) cannot compute because of problem with 'optim' (ML estimate of lambda is probably out of bounds)
+# We can get the value of lambda with 'fitEvolPar', compute the corresponding model, and add it to the data frame of models
+data20<-cbind.data.frame(datanew[,paste(varpairs[1,20])],
+                                datanew[,paste(varpairs[2,20])])
+colnames(data20)<-c(varpairs[1,20],varpairs[2,20])
+rownames(data20)<-rownames(PPAdata)
+data20<-na.omit(data20)
+tree20<-drop.tip(treesyr, setdiff(treesyr$tip.label, rownames(data20)))
+fitEvolPar(data20, tree20, "lambda")
+# lambda = 1: we do not need an ML estimate for lambda
+
+for (i in 20) {
+  datapair<-cbind.data.frame(datanew$Taxon, datanew[,paste(varpairs[1,i])],
+                                datanew[,paste(varpairs[2,i])])
+  colnames(datapair)<-c("Taxon",varpairs[1,i],varpairs[2,i])
+  comppair<-comparative.data(treesyr, datapair, names.col="Taxon")
+  modpair<-pgls(as.formula(paste(varpair[[i]])), data=comppair)
+  modlist[i,1]<-paste(varpair[[i]])
+  modlist[i,2]<-summary(modpair)$adj.r.squared
+  modlist[i,3]<-summary(modpair)$coef[2,4]
+}
+
+modlist # list of all models with pseudo R-squared and p-values
+```
+
+Let us check which models are significant
+
+```{r}
+modlist[which(modlist$p<0.05),]
+```
+
+-   Check additional parameters of significant models
+
+```{r}
+for (i in which(modlist$p<0.05)) {
+  datapair<-cbind.data.frame(datanew$Taxon, datanew[,paste(varpairs[1,i])],
+                                datanew[,paste(varpairs[2,i])])
+  colnames(datapair)<-c("Taxon",varpairs[1,i],varpairs[2,i])
+  treepair<-drop.tip(treesyr, setdiff(treesyr$tip.label, datapair$Taxon))
+  comppair<-comparative.data(treepair, datapair, names.col="Taxon")
+  modpair<-pgls(as.formula(paste(varpair[[i]])), data=comppair, lambda="ML")
+  print(as.formula(paste(varpair[[i]])))
+  print(summary(modpair)$coef)
+  print(paste("R-squared =", summary(modpair)$adj.r.squared))
+}
+```
+
+Tracheal length ratio is *negatively* correlated with distance TL-labia, which is *positively* correlated with CSA of intrinsic muscles. In hummingbirds, shortening of the trachea may have shortened TL and liberated extra space for intrinsic muscles to develop at the level of the tympanum. Additionally, both shortening of the trachea and higher CSA of intrinsic muscles are correlated with longer labia, which may have an effect on hummingbird vocal production. However, only one of our investigated traits, shortening of the trachea, is correlated with PC1 from our pPCA on sound characters. It is possible that the effect of tracheal length ratio on CSA of intrinsic muscles has an effect on sound production undetected by our analyses due to small sample size; this hypothesis, however, requires further testing.
+
+We can test this hypothesis by including individual acoustic traits and correlating them with morphological traits.
+
+-   Include acoustic traits to the main dataset
+
+```{r}
+dataS<-cbind(datanew[,c(1:7,10)],log10(data[,c(13:17)]))
+```
+
+-   Test effect of each morphoanatomical trait on each acoustic trait (individual PGLS regressions)
+
+```{r}
+# List pairs of variables (x, y) to compile regressions of
+pairsound<-expand.grid(colnames(dataS)[2:8],colnames(dataS)[9:13])
+
+# Perform all PGLS
+modlistsound<-as.data.frame(matrix(NA, nrow=35, ncol=3))
+colnames(modlistsound)<-c("Model","R2","p")
+for (i in c(1:10,12:35)) {
+  datapgls<-cbind.data.frame(dataS$Taxon, dataS[,paste(pairsound[i,1])],
+                                dataS[,paste(pairsound[i,2])])
+  colnames(datapgls)<-c("Taxon",paste(pairsound[i,1]),paste(pairsound[i,2]))
+  compS<-comparative.data(treesyr, datapgls, names.col="Taxon")
+  pglS<-pgls(as.formula(paste(colnames(datapgls[3]),"~",colnames(datapgls[2]))),
+             data=compS, lambda="ML")
+  modlistsound[i,1]<-as.character(paste(colnames(datapgls[3]),"~",colnames(datapgls[2])))
+  modlistsound[i,2]<-summary(pglS)$adj.r.squared
+  modlistsound[i,3]<-summary(pglS)$coef[2,4]
+}
+
+# Model 20 (freq_max_amp~LL) cannot compute because of problem with 'optim' (ML estimate of lambda is probably out of bounds)
+# We can get the value of lambda with 'fitEvolPar', compute the corresponding model, and add it to the data frame of models
+i = 11
+datapgls<-cbind.data.frame(dataS[,paste(pairsound[i,1])],
+                           dataS[,paste(pairsound[i,2])])
+colnames(datapgls)<-c(paste(pairsound[i,1]),paste(pairsound[i,2]))
+rownames(datapgls)<-dataS$Taxon
+datapgls<-na.omit(datapgls)
+tree11<-drop.tip(treesyr, setdiff(treesyr$tip.label, rownames(datapgls)))
+fitEvolPar(datapgls, tree11, "lambda")
+# lambda = 1: we do not need an ML estimate for lambda
+datapgls<-cbind.data.frame(dataS$Taxon,dataS[,paste(pairsound[i,1])],
+                           dataS[,paste(pairsound[i,2])])
+colnames(datapgls)<-c("Taxon", paste(pairsound[i,1]),paste(pairsound[i,2]))
+compS<-comparative.data(treesyr, datapgls, names.col="Taxon")
+pglS<-pgls(as.formula(paste(colnames(datapgls[3]),"~",colnames(datapgls[2]))),
+             data=compS)
+modlistsound[i,1]<-as.character(paste(colnames(datapgls[3]),"~",colnames(datapgls[2])))
+modlistsound[i,2]<-summary(pglS)$adj.r.squared
+modlistsound[i,3]<-summary(pglS)$coef[2,4]
+
+# Check for significance
+min(modlistsound$R2); max(modlistsound$R2)
+which(modlistsound$p<0.05)
+```
+
+None of the regressions are significant, probably due to small sample size.
+
+## Compare with previous analysis by C. Eliason using phylogenetic 2B-PLS
+
+-   Extract data and perform the analysis
+
+```{r, results='hide'}
+# Data matrices
+dataS2<-dataS[,c(2:7,9:13)] # No IM CSA due to a high amount of missing data (all non-hummingbirds)
+dataS2<-na.omit(dataS2)
+Morphol<-dataS2[,1:6]
+Sound<-dataS2[,7:11]
+treepls<-drop.tip(treesyr, setdiff(treesyr$tip.label, rownames(dataS2)))
+
+# 2B-PLS
+twobpls<-phylo.integration(log1p(Morphol), log1p(Sound), phy=treepls, iter=9999) # with phylogeny
+summary(twobpls); plot(twobpls)
+twobpls2<-two.b.pls(log1p(Morphol), log1p(Sound), iter=9999) # without phylogeny
+summary(twobpls2); plot(twobpls2)
+```
+
+-   Same with pPCA
+
+```{r}
+# Perform pPCAs
+PCAmorph<-phyl.pca(treepls, Morphol, method="lambda", opt="REML")
+PCAsound<-phyl.pca(treepls, Sound, method="lambda", opt="REML")
+summary(PCAmorph); summary(PCAsound)
+PC1morph<-PCAmorph$S[,1]
+PC1sound<-PCAsound$S[,1]
+
+# PGLS regression between the two PC1s
+dataPC1<-cbind.data.frame(names(PC1morph), PC1morph, PC1sound); colnames(dataPC1)[1]<-"Taxon"
+dataPCAreg<-comparative.data(treepls, dataPC1, names.col="Taxon")
+PCAreg<-pgls(PC1sound~PC1morph, dataPCAreg, lambda="ML")
+summary(PCAreg)
+```
+
+Results are similar to those obtained with our own dataset: the regressions are not significant, probably due to small sample size.
+
+## Ancestral state reconstructions
+
+Since phylogenetic signal (l. 140) was high and significant for all traits except distance TL-labia and IM CSA, we can optimize five out of seven morphoanatomical traits using `contMap`.
+
+We had not tested for tracheal elongation ratio, so we need to perform this first.
+
+```{r}
+# Estimating lambda
+Tr<-dataS$Tr; names(Tr)<-rownames(dataS)
+Tr<-Tr[!is.na(Tr)]
+treeTr<-drop.tip(treesyr, setdiff(treesyr$tip.label, names(Tr)))
+phylosig(treeTr, Tr, method="lambda", test=TRUE)
+
+# Evolutionary model selection
+for (m in 1:length(models)) {
+  fit[[m]]=fitContinuous(treeTr, Tr, model=models[m], ncores=2)
+}
+modTr<-modSel.geiger(fit[[1]],fit[[2]],fit[[3]],fit[[4]],fit[[5]],fit[[6]])
+modTr
+```
+Phylogenetic signal is high and significant for tracheal elongation ratio. A Brownian Motion model is the best fit.
+
+- Ancestral reconstructions
+```{r, fig.show='hide'}
+dataplot=list(); fit=list(); obj=list()
+for (i in c(2,4:7)) {
+  dataplot[[i]]<-dataS[,i]; names(dataplot[[i]])<-rownames(dataS)
+  dataplot[[i]]<-na.omit(dataplot[[i]])
+  treeplot<-drop.tip(treesyr, setdiff(treesyr$tip.label, names(dataplot[[i]])))
+  fit[[i]]<-fastAnc(treeplot, dataplot[[i]], vars=TRUE, CI=TRUE)
+  obj[[i]]<-setMap(contMap(treeplot, dataplot[[i]]),
+                   colors=rev(brewer.pal(10,"Spectral")))
+}
+```
+
+- Plot for all traits (all generated at once)
+```{r}
+for (i in c(2,4:7)) {
+  plot(obj[[i]])
+  title(paste('Ancestral state reconstruction for', colnames(dataS)[i]))
+}
+```
+
+- Same for ratios of traits to body mass to correct for influence of body mass.
+```{r, fig.show='hide'}
+dataplot=list(); fit=list(); obj=list()
+for (i in c(4:7)) {
+  dataplot[[i]]<-dataS[,i]/dataS$BM; names(dataplot[[i]])<-rownames(dataS)
+  dataplot[[i]]<-na.omit(dataplot[[i]])
+  treeplot<-drop.tip(treesyr, setdiff(treesyr$tip.label, names(dataplot[[i]])))
+  fit[[i]]<-fastAnc(treeplot, dataplot[[i]], vars=TRUE, CI=TRUE)
+  obj[[i]]<-setMap(contMap(treeplot, dataplot[[i]]),
+                   colors=rev(brewer.pal(10,"Spectral")))
+}
+```
+
+- Plot for all traits (all generated at once)
+```{r}
+for (i in c(4:7)) {
+  plot(obj[[i]])
+  title(paste('Ancestral state reconstruction for', colnames(dataS)[i], 'corrected for body mass'))
+}
+```
+
+### Box plots and t-tests for labia length (to showcase lower values for <i>Phaethornis</i>)
+
+```{r}
+# With labia length
+ggplot(datasyr, aes(x=Family, y=log(Length_labia), fill=Family)) +
+  geom_boxplot() +
+  geom_jitter(shape=16, position=position_jitter(0.2)) +
+  scale_fill_brewer(palette="Dark2")
+
+# With ratio (labia length/body mass)
+ggplot(datasyr, aes(x=Family, y=log(Length_labia/Body_mass), fill=Family)) +
+  geom_boxplot() +
+  geom_jitter(shape=16, position=position_jitter(0.2)) +
+  scale_fill_brewer(palette="Dark2")
+```
+
+- T-test for difference between swifts and hummingbirds in labia length
+```{r}
+dataswifts<-datasyr %>% filter(Family=="Apodidae")
+datahummingbirds<-datasyr %>% filter(Family=="Trochilidae")
+
+## With labia length
+t.test(log(datahummingbirds$Length_labia), log(dataswifts$Length_labia)) # Marginally significant
+
+## With ratio (labia length/body mass)
+t.test(log(datahummingbirds$Length_labia/datahummingbirds$Body_mass),
+       log(dataswifts$Length_labia/dataswifts$Body_mass)) # Significant
+```
+
+### Box plots and t-tests for tracheal elongation ratio (TER)
+
+```{r}
+familyTER<-c("Caprimulgidae", rep("Apodidae", 3), rep("Trochilidae", 13))
+TracheaRatioclean<-na.omit(TracheaRatio)
+BMTER<-data$Body_mass[!is.na(data$Tracheal_length)]
+TER<-as.data.frame(cbind(familyTER, TracheaRatioclean, BMTER))
+colnames(TER)<-c("Family","TER", "Body_mass")
+TER[,2]<-as.numeric(TER[,2]); TER[,3]<-as.numeric(TER[,3])
+
+# With TER
+ggplot(TER, aes(x=Family, y=log(TER), fill=Family)) +
+  geom_boxplot() +
+  geom_jitter(shape=16, position=position_jitter(0.2)) +
+  scale_fill_brewer(palette="Dark2")
+
+# With ratio (TER/body mass)
+ggplot(TER, aes(x=Family, y=log(TER/Body_mass), fill=Family)) +
+  geom_boxplot() +
+  geom_jitter(shape=16, position=position_jitter(0.2)) +
+  scale_fill_brewer(palette="Dark2")
+```
+
+- T-test for difference between swifts and hummingbirds in TER
+```{r}
+TERswifts<-TER %>% filter(Family=="Apodidae")
+TERhummingbirds<-TER %>% filter(Family=="Trochilidae")
+
+## With labia length
+t.test(log(TERswifts$TER), log(TERhummingbirds$TER)) # Significant
+
+## With ratio (labia length/body mass)
+t.test(log(TERhummingbirds$TER/TERhummingbirds$Body_mass), log(TERswifts$TER/TERswifts$Body_mass)) # Not significant
+```
+
+
+## References
+
+<div style="text-indent: -40px; padding-left: 40px;">
+
+Gonzalez-Voyer, A. Hardenberg, A. von. 2014. An introduction to phylogenetic path analysis. In: Garamszegi, L. Z. (Ed.). <i>Modern phylogenetic comparative methods and their application in evolutionary biology: concepts and practices</i>. Berlin: Springer, 201--229. <https://doi.org/10.1007/978-3-662-43550-2_8>\
+
+Hardenberg, A. von, Gonzalez‐Voyer, A. 2013. Disentangling evolutionary cause-effect relationships with phylogenetic confirmatory path analysis. <i>Evolution</i> 67, 378--387. <https://doi.org/10.1111/j.1558-5646.2012.01790.x>\
+
+Revell, L.J. 2009. Size-correction and principal components for interspecific comparative studies. <i>Evolution</i> 63, 3258--3268. <https://doi.org/10.1111/j.1558-5646.2009.00804.x>\
+
+Uyeda, J.C., Caetano, D.S., Pennell, M.W. 2015. Comparative analysis of principal components can be misleading. <i>Systematic Biology</i> 64, 677--689. <https://doi.org/10.1093/sysbio/syv019>\
+
+</div>

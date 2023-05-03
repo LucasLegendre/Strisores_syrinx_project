@@ -1,0 +1,56 @@
+#NEXUS
+
+
+BEGIN TAXA;
+	TITLE Taxa;
+	DIMENSIONS NTAX=35;
+	TAXLABELS
+		Eurostopodus_mystacalis Antrostomus_carolinensis Caprimulgus_europaeus Chordeiles_minor Nyctibius_grandis Steatornis_caripensis Batrachostomus_septimus Podargus_strigoides Aegotheles_cristatus Hemiprocne_mystacea Streptoprocne_zonaris Chaetura_pelagica_16731 Apus_affinis Collocalia_esculenta Topaza_pella Eutoxeres_condamini Phaethornis_hispidus Phaethornis_superciliosus Phaethornis_guy Coeligena_violifer Oreotrochilus_chimborazo_365 Calypte_anna Archilochus_colubris Selasphorus_heloisa Florisuga_mellivora Patagona_gigas Calliphlox_amethystina Heliangelus_amethysticollis Mellisuga_minima Phlogophilus_harterti Calypte_costae Archilochus_alexandri Selasphorus_rufus Chaetura_pelagica_15725 Oreotrochilus_chimborazo_367 
+	;
+END;
+
+
+begin TREES;
+
+	TRANSLATE
+		1 Eurostopodus_mystacalis,
+		2 Antrostomus_carolinensis,
+		3 Caprimulgus_europaeus,
+		4 Chordeiles_minor,
+		5 Nyctibius_grandis,
+		6 Steatornis_caripensis,
+		7 Batrachostomus_septimus,
+		8 Podargus_strigoides,
+		9 Aegotheles_cristatus,
+		10 Hemiprocne_mystacea,
+		11 Streptoprocne_zonaris,
+		12 Chaetura_pelagica_16731,
+		13 Apus_affinis,
+		14 Collocalia_esculenta,
+		15 Topaza_pella,
+		16 Eutoxeres_condamini,
+		17 Phaethornis_hispidus,
+		18 Phaethornis_superciliosus,
+		19 Phaethornis_guy,
+		20 Coeligena_violifer,
+		21 Oreotrochilus_chimborazo_365,
+		22 Calypte_anna,
+		23 Archilochus_colubris,
+		24 Selasphorus_heloisa,
+		25 Florisuga_mellivora,
+		26 Patagona_gigas,
+		27 Calliphlox_amethystina,
+		28 Heliangelus_amethysticollis,
+		29 Mellisuga_minima,
+		30 Phlogophilus_harterti,
+		31 Calypte_costae,
+		32 Archilochus_alexandri,
+		33 Selasphorus_rufus,
+		34 Chaetura_pelagica_15725,
+		35 Oreotrochilus_chimborazo_367;
+
+
+	TREE 'no root constraint+' = ((1:33.1,(2:16.566192,(3:16.5,4:16.5):0.066192):16.533808):28.49,((5:55.63,6:55.63):4.25,((7:44.840355,8:44.840355):13.139645,(9:56.3,((10:49.3,(11:33.8,((12:0.1,34:0.1):17.775,(13:16.375,14:16.375):1.5):15.925):15.5):4.3,(((15:18.7,25:18.7):3.3,(16:19.5,(17:7.3,(18:4.5,19:4.5):2.8):12.2):2.5):0.4,((20:15.5,(30:13.2,((21:0.1,35:0.1):12,28:12.1):1.1):2.3):4.6,(26:14.4,(27:5,((29:3.3,(23:0.9,32:0.9):2.4):0.7,((22:1.6,31:1.6):0.8,(24:1.5,33:1.5):0.9):1.6):1):9.4):5.7):2.3):31.2):2.7):1.68):1.9):1.71);
+end;
+
+
