@@ -21,6 +21,8 @@ Compiled under R version 4.3.0 (2023-04-21)
 
 This document details all analyses performed in R for the study:
 
+Legendre, L.J., C.A. Rodríguez-Saltos, C.M. Eliason, & J.A. Clarke. 2023. Evolution of the syrinx of Apodiformes including the vocal-learning Trochilidae (Aves, Strisores). <i>Zoological Journal of the Linnean Society</i>.
+
 For more information regarding the study, datasets, and analyses, please refer to the Main Text and Supplementary Information of this paper. If you have any additional questions, feel free to email me at [lucasjlegendre\@gmail.com](mailto:lucasjlegendre@gmail.com){.email}.
 
 ## Loading packages and functions
@@ -28,6 +30,7 @@ For more information regarding the study, datasets, and analyses, please refer t
 ```{r, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(nlme)
+library(car)
 library(ape)
 library(phytools)
 library(bioacoustics)
@@ -405,6 +408,8 @@ for (i in which(modlist$p<0.05)) {
   print(as.formula(paste(varpair[[i]])))
   print(summary(modpair)$coef)
   print(paste("R-squared =", summary(modpair)$adj.r.squared))
+  print(shapiro.test(modpair$residuals))
+  plot(modpair$residuals~modpair$fitted, main="Normalized Residuals v Fitted Values")
 }
 ```
 
