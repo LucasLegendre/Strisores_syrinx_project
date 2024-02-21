@@ -15,13 +15,13 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Compiled under R version 4.3.0 (2023-04-21)
+Compiled under R version 4.3.2 (2023-10-31)
 
 **WARNING**: edit the working directory to your preferred folder.
 
 This document details all analyses performed in R for the study:
 
-Legendre, L.J., C.A. Rodríguez-Saltos, C.M. Eliason, & J.A. Clarke. 2023. Evolution of the syrinx of Apodiformes including the vocal-learning Trochilidae (Aves, Strisores). <i>Zoological Journal of the Linnean Society</i>.
+Legendre, L.J., C.A. Rodríguez-Saltos, C.M. Eliason, & J.A. Clarke. 2024. Evolution of the syrinx of Apodiformes including the vocal-learning Trochilidae (Aves, Strisores). <i>Zoological Journal of the Linnean Society</i>. https://doi.org/10.1093/zoolinnean/zlae001
 
 For more information regarding the study, datasets, and analyses, please refer to the Main Text and Supplementary Information of this paper. If you have any additional questions, feel free to email me at [lucasjlegendre\@gmail.com](mailto:lucasjlegendre@gmail.com){.email}.
 
@@ -540,7 +540,7 @@ for (i in c(2,4:7)) {
   dataplot[[i]]<-na.omit(dataplot[[i]])
   treeplot<-drop.tip(treesyr, setdiff(treesyr$tip.label, names(dataplot[[i]])))
   fit[[i]]<-fastAnc(treeplot, dataplot[[i]], vars=TRUE, CI=TRUE)
-  obj[[i]]<-setMap(contMap(treeplot, dataplot[[i]]),
+  obj[[i]]<-setMap(contMap(treeplot, dataplot[[i]], plot=FALSE),
                    colors=rev(brewer.pal(10,"Spectral")))
 }
 ```
@@ -561,7 +561,7 @@ for (i in c(4:7)) {
   dataplot[[i]]<-na.omit(dataplot[[i]])
   treeplot<-drop.tip(treesyr, setdiff(treesyr$tip.label, names(dataplot[[i]])))
   fit[[i]]<-fastAnc(treeplot, dataplot[[i]], vars=TRUE, CI=TRUE)
-  obj[[i]]<-setMap(contMap(treeplot, dataplot[[i]]),
+  obj[[i]]<-setMap(contMap(treeplot, dataplot[[i]], plot=FALSE),
                    colors=rev(brewer.pal(10,"Spectral")))
 }
 ```
