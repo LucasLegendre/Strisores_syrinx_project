@@ -8,5 +8,5 @@ This project includes:
 - 'Dataset_syrinx_strisores.txt': dataset of morphological traits measured on specimens sampled for this study (see Main Text and Tables S1, S2 for more information), in TXT format
 - 'Tree_strisores.trees.nex': phylogenetic tree for 'Dataset_syrinx_strisores.txt', in NEXUS format
 
-Reference
+**Reference**  
 Legendre, L.J., Rodríguez-Saltos, C.A., Eliason, C.M., Clarke, J.A. 2024. Evolution of the syrinx of Apodiformes, including the vocal-learning Trochilidae (Aves: Strisores). *Zoological Journal of the Linnean Society*. https://doi.org/10.1093/zoolinnean/zlae001
